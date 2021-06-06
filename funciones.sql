@@ -67,35 +67,59 @@ COPY intermedia FROM 'C:\Mati\DataGripProjects\TPE_BD\SalesbyRegion.csv' WITH DE
 --4 Cálculo de la mediana
 
 CREATE OR REPLACE FUNCTION MedianaMargenMovil(fecha date, n int) RETURNS float
-AS $$
+AS
+$$
 DECLARE
-    initDate date;
+    initDate       date;
     margenDeVentas float;
 BEGIN
     initDate := fecha - INTERVAL '1 month' * n;
 
-    SELECT percentile_disc(0.5) within group (order by Revenue - Cost)
+    SELECT percentile_cont(0.5) within group (order by Revenue - Cost)
     INTO margenDeVentas
     FROM definitiva
-    WHERE Sales_Date > initDate AND Sales_Date < fecha;
+    WHERE Sales_Date > initDate
+      AND Sales_Date <= fecha;
 
     return margenDeVentas;
 END
 $$ LANGUAGE plpgsql;
 
-SELECT MedianaMargenMovil(to_date('2012-11-01','YYYY-MM-DD'),4);
+SELECT MedianaMargenMovil(to_date('2012-11-01', 'YYYY-MM-DD'), 4); --TODO los decimales e imprimir un mensaje si el parametro es 0
 
 --5 Reporte de Ventas
-CREATE OR REPLACE FUNCTION ReporteVentas(n int) RETURNS float
-AS $$
+CREATE OR REPLACE PROCEDURE ReporteVentas(n int)
+AS
+$$
 DECLARE
+    aRec     record;
     initDate date;
     initYear int;
     lastYear int;
+    myCursor CURSOR FOR SELECT Sales_Date, Customer_type, Sum(Cost) AS Cost, Sum(Revenue) as Revenue
+                        FROM (SELECT EXTRACT(YEAR from Sales_Date) AS Sales_Date,
+                                     Product_type,
+                                     Sales_Channel,
+                                     Customer_type,
+                                     Revenue,
+                                     Cost
+                              FROM definitiva
+                              WHERE EXTRACT(YEAR from Sales_Date) BETWEEN initYear AND lastYear) AS auxi
+    GROUP BY Sales_date, Customer_type
+    ORDER BY Sales_Date, Customer_type;
 BEGIN
     SELECT MIN(Sales_Date) INTO initDate FROM definitiva;
     initYear := EXTRACT(YEAR FROM initDate);
     lastYear := initYear + n - 1;
 
+    OPEN myCursor;
+    LOOP
+        FETCH myCursor INTO aRec;
+        EXIT WHEN NOT FOUND;
+        raise NOTICE '% % % %', aRec.Customer_type, aRec.Revenue, aRec.Cost, aRec.Revenue - aRec.Cost;
+    END LOOP;
+
 END
 $$ LANGUAGE plpgsql;
+
+CALL ReporteVentas(1);
