@@ -1,6 +1,6 @@
 --1 Tabla intermedia
 
-CREATE TABLE intermedia
+CREATE TABLE intermedia --TODO agregar validaciones del formato en las fechas
 (
     Quarter       text not null,
     Month         text not null,
@@ -55,12 +55,15 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
+-----------------------
+
 CREATE TRIGGER insertoEnIntermedia
     AFTER INSERT
     ON intermedia
     FOR EACH ROW
 EXECUTE PROCEDURE insertarEnDefinitiva();
 
+-----------------------
 
 COPY intermedia FROM 'C:\Mati\DataGripProjects\TPE_BD\SalesbyRegion.csv' WITH DELIMITER ',' CSV HEADER;
 
@@ -85,10 +88,12 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
+-----------------------
+
 SELECT MedianaMargenMovil(to_date('2012-11-01', 'YYYY-MM-DD'), 4); --TODO los decimales e imprimir un mensaje si el parametro es 0
 
 --5 Reporte de Ventas
-CREATE OR REPLACE PROCEDURE ReporteVentas(n int)
+CREATE OR REPLACE FUNCTION ReporteVentas(n int) RETURNS void
 AS
 $$
 DECLARE
@@ -122,4 +127,12 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
-CALL ReporteVentas(1);
+-----------------------
+
+DO $$
+BEGIN
+ PERFORM ReporteVentas(1);
+END;
+$$;
+
+DROP FUNCTION ReporteVentas;
