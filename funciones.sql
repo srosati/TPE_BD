@@ -1,6 +1,6 @@
 --1 Tabla intermedia
 
-CREATE TABLE intermedia --TODO agregar validaciones del formato en las fechas
+CREATE TABLE intermedia --TODO testear validaciones del formato en las fechas
 (
     Quarter       text not null CHECK ( Quarter ~ '^Q[1-4]/[0-9]{4}$' ),
     Month         text not null CHECK ( Month ~ '^[0-9]{2}-[A-Z][a-z]{2}$' ),
@@ -30,6 +30,21 @@ CREATE TABLE definitiva
 
 --3 Importación de datos
 
+CREATE OR REPLACE FUNCTION calcularDia(semana TEXT) RETURNS INT
+    RETURNS NULL ON NULL INPUT
+AS
+$$
+BEGIN
+    return CASE substr(semana, 1, 2)
+               WHEN 'W1' THEN 1
+               WHEN 'W2' THEN 8
+               WHEN 'W3' THEN 15
+               WHEN 'W4' THEN 22
+               WHEN 'W5' THEN 29
+        END;
+END
+$$ LANGUAGE plpgsql;;
+
 CREATE OR REPLACE FUNCTION insertarEnDefinitiva() RETURNS TRIGGER
 AS
 $$
@@ -38,13 +53,7 @@ DECLARE
     aMonth int;
     aYear  int;
 BEGIN
-    aDay := CASE substr(new.Week, 1, 2)
-                WHEN 'W1' THEN 1
-                WHEN 'W2' THEN 8
-                WHEN 'W3' THEN 15
-                WHEN 'W4' THEN 22
-                WHEN 'W5' THEN 29
-        END;
+    aDay := calcularDia(substr(new.Week, 1, 2));
     aMonth := EXTRACT(MONTH FROM TO_DATE(substr(new.Month, 4, 3), 'Mon'));
     aYear := substr(new.Quarter, 4, 4)::INTEGER;
 
@@ -69,13 +78,18 @@ COPY intermedia FROM 'C:\Mati\DataGripProjects\TPE_BD\SalesbyRegion.csv' WITH DE
 
 --4 Cálculo de la mediana
 
-CREATE OR REPLACE FUNCTION MedianaMargenMovil(fecha date, n int) RETURNS float
+CREATE OR REPLACE FUNCTION MedianaMargenMovil(fecha date, n int) RETURNS DECIMAL(6, 2)
+    RETURNS NULL ON NULL INPUT
 AS
 $$
 DECLARE
-    initDate       date;
-    margenDeVentas float;
+    initDate       DATE;
+    margenDeVentas DECIMAL(6, 2);
 BEGIN
+    IF n <= 0 THEN
+        RAISE NOTICE 'La cantidad de meses anteriores debe ser mayor a 0';
+        return null;
+    END IF;
     initDate := fecha - INTERVAL '1 month' * n;
 
     SELECT percentile_cont(0.5) within group (order by Revenue - Cost)
@@ -88,9 +102,11 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
------------------------
 
-SELECT MedianaMargenMovil(to_date('2012-11-01', 'YYYY-MM-DD'), 4); --TODO los decimales e imprimir un mensaje si el parametro es 0
+-----------------------
+DROP function MedianaMargenMovil(fecha date, n int);
+
+SELECT MedianaMargenMovil(to_date('2011-09-01', 'YYYY-MM-DD'), 5); --TODO imprimir un mensaje si el parametro es 0
 
 --5 Reporte de Ventas
 CREATE VIEW salesView(Sales_Year, Product_type, Sales_Channel, Customer_type, Revenue, Cost) AS
@@ -103,40 +119,45 @@ SELECT EXTRACT(YEAR from Sales_Date) AS Sales_Year,
 FROM definitiva;
 
 
-CREATE OR REPLACE FUNCTION ReporteVentas(n int) RETURNS void -- TODO: Chequear input 0 o NULL etc
+CREATE OR REPLACE FUNCTION ReporteVentas(n INT) RETURNS VOID -- TODO: Chequear input 0 o NULL etc
+    RETURNS NULL ON NULL INPUT
 AS
 $$
 DECLARE
-    aRec         record;
-    initDate     date;
-    initYear     int;
-    lastYear     int;
-    yearIdx      int;
-    totalRevenue int;
-    totalCost    int;
-    customerTypeCursor CURSOR (selectedYear int) FOR SELECT Customer_type,
-                                                            Sum(Cost)::Int    AS Cost,
-                                                            Sum(Revenue)::Int as Revenue
+    aRec         RECORD;
+    initDate     DATE;
+    initYear     INT;
+    lastYear     INT;
+    yearIdx      INT;
+    totalRevenue FLOAT;
+    totalCost    FLOAT;
+    yearStr      TEXT;
+    customerTypeCursor CURSOR (selectedYear INT) FOR SELECT Customer_type,
+                                                            Sum(Cost)    AS Cost,
+                                                            Sum(Revenue) as Revenue
                                                      FROM salesView
                                                      WHERE Sales_Year = selectedYear
                                                      GROUP BY Customer_type
                                                      ORDER BY Customer_type;
-    productTypeCursor CURSOR  (selectedYear int) FOR SELECT Product_type,
-                                                            Sum(Cost)::Int    AS Cost,
-                                                            Sum(Revenue)::Int as Revenue
+    productTypeCursor CURSOR  (selectedYear INT) FOR SELECT Product_type,
+                                                            Sum(Cost)    AS Cost,
+                                                            Sum(Revenue) as Revenue
                                                      FROM salesView
                                                      WHERE Sales_Year = selectedYear
                                                      GROUP BY Product_type
                                                      ORDER BY Product_type;
-    salesChannelCursor CURSOR (selectedYear int) FOR SELECT Sales_Channel,
-                                                            Sum(Cost)::Int    AS Cost,
-                                                            Sum(Revenue)::Int as Revenue
+    salesChannelCursor CURSOR (selectedYear INT) FOR SELECT Sales_Channel,
+                                                            Sum(Cost)    AS Cost,
+                                                            Sum(Revenue) as Revenue
                                                      FROM salesView
                                                      WHERE Sales_Year = selectedYear
                                                      GROUP BY Sales_Channel
                                                      ORDER BY Sales_Channel;
 BEGIN
     SELECT MIN(Sales_Date) INTO initDate FROM definitiva;
+    IF initDate IS NULL OR n <= 0 THEN
+        return;
+    END IF;
     initYear := EXTRACT(YEAR FROM initDate);
     lastYear := initYear + n - 1;
 
@@ -148,17 +169,19 @@ BEGIN
 
     WHILE (yearIdx <= lastYear)
         LOOP
+            yearStr := yearIdx;
             totalRevenue := 0;
             totalCost := 0;
             RAISE NOTICE '-------------------------------------------------------------------';
-            RAISE NOTICE '%', yearIdx;
+
             OPEN customerTypeCursor(selectedYear := yearIdx);
             LOOP
                 FETCH customerTypeCursor INTO aRec;
                 EXIT WHEN NOT FOUND;
                 totalRevenue := totalRevenue + aRec.Revenue;
                 totalCost := totalCost + aRec.Cost;
-                RAISE NOTICE '--- Customer Type: % % % %', aRec.Customer_type, aRec.Revenue, aRec.Cost, aRec.Revenue - aRec.Cost;
+                RAISE NOTICE '% Customer Type: % % % %', yearStr, aRec.Customer_type, aRec.Revenue::INT, aRec.Cost::INT, (aRec.Revenue - aRec.Cost)::INT;
+                yearStr := '----';
             END LOOP;
             CLOSE customerTypeCursor;
 
@@ -166,9 +189,7 @@ BEGIN
             LOOP
                 FETCH productTypeCursor INTO aRec;
                 EXIT WHEN NOT FOUND;
-                totalRevenue := totalRevenue + aRec.Revenue;
-                totalCost := totalCost + aRec.Cost;
-                RAISE NOTICE '--- Product Type: % % % %', aRec.Product_type, aRec.Revenue, aRec.Cost, aRec.Revenue - aRec.Cost;
+                RAISE NOTICE '---- Product Type: % % % %', aRec.Product_type, aRec.Revenue::INT, aRec.Cost::INT, (aRec.Revenue - aRec.Cost)::INT;
             END LOOP;
             CLOSE productTypeCursor;
 
@@ -176,13 +197,11 @@ BEGIN
             LOOP
                 FETCH salesChannelCursor INTO aRec;
                 EXIT WHEN NOT FOUND;
-                totalRevenue := totalRevenue + aRec.Revenue;
-                totalCost := totalCost + aRec.Cost;
-                RAISE NOTICE '--- Sales Channel: % % % %', aRec.Sales_Channel, aRec.Revenue, aRec.Cost, aRec.Revenue - aRec.Cost;
+                RAISE NOTICE '---- Sales Channel: % % % %', aRec.Sales_Channel, aRec.Revenue::INT, aRec.Cost::INT, (aRec.Revenue - aRec.Cost)::INT;
             END LOOP;
             CLOSE salesChannelCursor;
 
-            RAISE NOTICE '---------------------------------------------- % % %', totalRevenue, totalCost, totalRevenue - totalCost;
+            RAISE NOTICE '---------------------------------------------- % % %', totalRevenue::INT, totalCost::INT, (totalRevenue - totalCost)::INT;
             yearIdx := yearIdx + 1;
         END LOOP;
 
@@ -195,7 +214,7 @@ $$ LANGUAGE plpgsql;
 DO
 $$
     BEGIN
-        PERFORM ReporteVentas(1);
+        PERFORM ReporteVentas(2);
     END;
 $$;
 
