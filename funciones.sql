@@ -2,15 +2,15 @@
 
 CREATE TABLE intermedia --TODO testear validaciones del formato en las fechas
 (
-    Quarter       text not null CHECK ( Quarter ~ '^Q[1-4]/[0-9]{4}$' ),
-    Month         text not null CHECK ( Month ~ '^[0-9]{2}-[A-Z][a-z]{2}$' ),
-    Week          text not null CHECK ( Week ~ '^W[1-5]-[0-9]{4}$' ),
-    Product_type  text not null,
-    Territory     text not null,
-    Sales_Channel text not null,
-    Customer_type text not null,
-    Revenue       float,
-    Cost          float,
+    Quarter       TEXT NOT NULL CHECK ( Quarter ~ '^Q[1-4]/[0-9]{4}$' ),
+    Month         TEXT NOT NULL CHECK ( Month ~ '^[0-9]{2}-[A-Z][a-z]{2}$' ),
+    Week          TEXT NOT NULL CHECK ( Week ~ '^W[1-5]-[0-9]{4}$' ),
+    Product_type  TEXT NOT NULL,
+    Territory     TEXT NOT NULL,
+    Sales_Channel TEXT NOT NULL,
+    Customer_type TEXT NOT NULL,
+    Revenue       FLOAT CHECK ( Revenue >= 0 ),
+    Cost          FLOAT CHECK ( Cost >= 0 ),
     PRIMARY KEY (Quarter, Month, Week, Product_type, Territory, Sales_Channel, Customer_type)
 );
 
@@ -18,13 +18,13 @@ CREATE TABLE intermedia --TODO testear validaciones del formato en las fechas
 
 CREATE TABLE definitiva
 (
-    Sales_Date    date not null,
-    Product_type  text not null,
-    Territory     text not null,
-    Sales_Channel text not null,
-    Customer_type text not null,
-    Revenue       float,
-    Cost          float,
+    Sales_Date    DATE NOT NULL,
+    Product_type  TEXT NOT NULL,
+    Territory     TEXT NOT NULL,
+    Sales_Channel TEXT NOT NULL,
+    Customer_type TEXT NOT NULL,
+    Revenue       FLOAT CHECK ( Revenue >= 0 ),
+    Cost          FLOAT CHECK ( Cost >= 0 ),
     PRIMARY KEY (Sales_Date, Product_type, Territory, Sales_Channel, Customer_type)
 );
 
@@ -35,7 +35,7 @@ CREATE OR REPLACE FUNCTION calcularDia(semana TEXT) RETURNS INT
 AS
 $$
 BEGIN
-    return CASE substr(semana, 1, 2)
+    RETURN CASE substr(semana, 1, 2)
                WHEN 'W1' THEN 1
                WHEN 'W2' THEN 8
                WHEN 'W3' THEN 15
@@ -49,9 +49,9 @@ CREATE OR REPLACE FUNCTION insertarEnDefinitiva() RETURNS TRIGGER
 AS
 $$
 DECLARE
-    aDay   int;
-    aMonth int;
-    aYear  int;
+    aDay   INT;
+    aMonth INT;
+    aYear  INT;
 BEGIN
     aDay := calcularDia(substr(new.Week, 1, 2));
     aMonth := EXTRACT(MONTH FROM TO_DATE(substr(new.Month, 4, 3), 'Mon'));
@@ -88,17 +88,17 @@ DECLARE
 BEGIN
     IF n <= 0 THEN
         RAISE NOTICE 'La cantidad de meses anteriores debe ser mayor a 0';
-        return null;
+        RETURN NULL;
     END IF;
     initDate := fecha - INTERVAL '1 month' * n;
 
-    SELECT percentile_cont(0.5) within group (order by Revenue - Cost)
+    SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY Revenue - Cost)
     INTO margenDeVentas
     FROM definitiva
     WHERE Sales_Date > initDate
       AND Sales_Date <= fecha;
 
-    return margenDeVentas;
+    RETURN margenDeVentas;
 END
 $$ LANGUAGE plpgsql;
 
@@ -110,7 +110,7 @@ SELECT MedianaMargenMovil(to_date('2011-09-01', 'YYYY-MM-DD'), 5); --TODO imprim
 
 --5 Reporte de Ventas
 CREATE VIEW salesView(Sales_Year, Product_type, Sales_Channel, Customer_type, Revenue, Cost) AS
-SELECT EXTRACT(YEAR from Sales_Date) AS Sales_Year,
+SELECT EXTRACT(YEAR FROM Sales_Date) AS Sales_Year,
        Product_type,
        Sales_Channel,
        Customer_type,
@@ -134,21 +134,21 @@ DECLARE
     yearStr      TEXT;
     customerTypeCursor CURSOR (selectedYear INT) FOR SELECT Customer_type,
                                                             Sum(Cost)    AS Cost,
-                                                            Sum(Revenue) as Revenue
+                                                            Sum(Revenue) AS Revenue
                                                      FROM salesView
                                                      WHERE Sales_Year = selectedYear
                                                      GROUP BY Customer_type
                                                      ORDER BY Customer_type;
     productTypeCursor CURSOR  (selectedYear INT) FOR SELECT Product_type,
                                                             Sum(Cost)    AS Cost,
-                                                            Sum(Revenue) as Revenue
+                                                            Sum(Revenue) AS Revenue
                                                      FROM salesView
                                                      WHERE Sales_Year = selectedYear
                                                      GROUP BY Product_type
                                                      ORDER BY Product_type;
     salesChannelCursor CURSOR (selectedYear INT) FOR SELECT Sales_Channel,
                                                             Sum(Cost)    AS Cost,
-                                                            Sum(Revenue) as Revenue
+                                                            Sum(Revenue) AS Revenue
                                                      FROM salesView
                                                      WHERE Sales_Year = selectedYear
                                                      GROUP BY Sales_Channel
@@ -156,7 +156,7 @@ DECLARE
 BEGIN
     SELECT MIN(Sales_Date) INTO initDate FROM definitiva;
     IF initDate IS NULL OR n <= 0 THEN
-        return;
+        RETURN;
     END IF;
     initYear := EXTRACT(YEAR FROM initDate);
     lastYear := initYear + n - 1;
