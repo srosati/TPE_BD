@@ -1,6 +1,6 @@
 --1 Tabla intermedia
 
-CREATE TABLE intermedia --TODO testear validaciones del formato en las fechas
+CREATE TABLE intermedia
 (
     Quarter       TEXT NOT NULL CHECK ( Quarter ~ '^Q[1-4]/[0-9]{4}$' ),
     Month         TEXT NOT NULL CHECK ( Month ~ '^[0-9]{2}-[A-Z][a-z]{2}$' ),
@@ -30,7 +30,7 @@ CREATE TABLE definitiva
 
 --3 Importación de datos
 
-CREATE OR REPLACE FUNCTION calcularDia(semana TEXT) RETURNS INT
+CREATE OR REPLACE FUNCTION calcularDia(semana TEXT) RETURNS INT -- Funcion auxiliar para el mapeo entre semana y número
     RETURNS NULL ON NULL INPUT
 AS
 $$
@@ -43,9 +43,11 @@ BEGIN
                WHEN 'W5' THEN 29
         END;
 END
-$$ LANGUAGE plpgsql;;
+$$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION insertarEnDefinitiva() RETURNS TRIGGER
+-----------------------
+
+CREATE OR REPLACE FUNCTION insertarEnDefinitiva() RETURNS TRIGGER -- Trigger llamado al insertar tupla en intermedia
 AS
 $$
 DECLARE
@@ -74,7 +76,7 @@ EXECUTE PROCEDURE insertarEnDefinitiva();
 
 -----------------------
 
-COPY intermedia FROM 'C:\Mati\DataGripProjects\TPE_BD\SalesbyRegion.csv' WITH DELIMITER ',' CSV HEADER;
+COPY intermedia FROM '/absolute/path/to/csvFile' WITH DELIMITER ',' CSV HEADER; -- Reemplazar por el path absoluto al archivo que se desea importar
 
 --4 Cálculo de la mediana
 
@@ -86,7 +88,7 @@ DECLARE
     initDate       DATE;
     margenDeVentas DECIMAL(6, 2);
 BEGIN
-    IF n <= 0 THEN
+    IF (n <= 0) THEN
         RAISE NOTICE 'La cantidad de meses anteriores debe ser mayor a 0';
         RETURN NULL;
     END IF;
@@ -98,18 +100,19 @@ BEGIN
     WHERE Sales_Date > initDate
       AND Sales_Date <= fecha;
 
+    IF (margenDeVentas IS NULL) THEN
+        RAISE NOTICE 'No hay datos para el rango seleccionado';
+    END IF;
+
     RETURN margenDeVentas;
 END
 $$ LANGUAGE plpgsql;
 
-
 -----------------------
-DROP function MedianaMargenMovil(fecha date, n int);
-
-SELECT MedianaMargenMovil(to_date('2011-09-01', 'YYYY-MM-DD'), 5); --TODO imprimir un mensaje si el parametro es 0
 
 --5 Reporte de Ventas
-CREATE VIEW salesView(Sales_Year, Product_type, Sales_Channel, Customer_type, Revenue, Cost) AS
+
+CREATE VIEW salesView(Sales_Year, Product_type, Sales_Channel, Customer_type, Revenue, Cost) AS -- Vista auxiliar para facilitar el cálculo del año correspondiente
 SELECT EXTRACT(YEAR FROM Sales_Date) AS Sales_Year,
        Product_type,
        Sales_Channel,
@@ -118,15 +121,14 @@ SELECT EXTRACT(YEAR FROM Sales_Date) AS Sales_Year,
        Cost
 FROM definitiva;
 
+-----------------------
 
-CREATE OR REPLACE FUNCTION ReporteVentas(n INT) RETURNS VOID -- TODO: Chequear input 0 o NULL etc
+CREATE OR REPLACE FUNCTION ReporteVentas(n INT) RETURNS VOID
     RETURNS NULL ON NULL INPUT
 AS
 $$
 DECLARE
     aRec         RECORD;
-    initDate     DATE;
-    initYear     INT;
     lastYear     INT;
     yearIdx      INT;
     totalRevenue FLOAT;
@@ -154,14 +156,21 @@ DECLARE
                                                      GROUP BY Sales_Channel
                                                      ORDER BY Sales_Channel;
 BEGIN
-    SELECT MIN(Sales_Date) INTO initDate FROM definitiva;
-    IF initDate IS NULL OR n <= 0 THEN
+    IF (n <= 0) THEN
+        RAISE NOTICE 'La cantidad de años debe ser mayor a 0';
         RETURN;
     END IF;
-    initYear := EXTRACT(YEAR FROM initDate);
-    lastYear := initYear + n - 1;
 
-    yearIdx := initYear;
+    SELECT EXTRACT(YEAR FROM MIN(Sales_Date)), EXTRACT(YEAR FROM MAX(Sales_Date)) INTO yearIdx, lastYear FROM definitiva;
+
+    IF (yearIdx IS NULL) THEN
+        RAISE NOTICE 'No hay valores en la tabla';
+        RETURN;
+    END IF;
+
+    IF (lastYear > yearIdx + n - 1) THEN
+        lastYear := yearIdx + n - 1;
+    END IF;
 
     RAISE NOTICE '--------------------- HISTORIC SALES REPORT -----------------------';
     RAISE NOTICE '-------------------------------------------------------------------';
@@ -202,14 +211,30 @@ BEGIN
             CLOSE salesChannelCursor;
 
             RAISE NOTICE '---------------------------------------------- % % %', totalRevenue::INT, totalCost::INT, (totalRevenue - totalCost)::INT;
+
             yearIdx := yearIdx + 1;
         END LOOP;
-
-
 END
 $$ LANGUAGE plpgsql;
 
 -----------------------
+
+-- Sentencias para ejecutar ejemplos MedianaMargenMovil
+SELECT MedianaMargenMovil(to_date('2012-11-01','YYYY-MM-DD'),3);
+
+SELECT MedianaMargenMovil(to_date('2012-11-01','YYYY-MM-DD'),4);
+
+SELECT MedianaMargenMovil(to_date('2011-09-01','YYYY-MM-DD'),5);
+
+SELECT MedianaMargenMovil(to_date('2012-11-01','YYYY-MM-DD'),0);
+
+-- Sentencias para ejecutar ejemplos ReporteDeVentas
+DO
+$$
+    BEGIN
+        PERFORM ReporteVentas(1);
+    END;
+$$;
 
 DO
 $$
@@ -218,4 +243,16 @@ $$
     END;
 $$;
 
-DROP FUNCTION ReporteVentas;
+DO
+$$
+    BEGIN
+        PERFORM ReporteVentas(3);
+    END;
+$$;
+
+DO
+$$
+    BEGIN
+        PERFORM ReporteVentas(0);
+    END;
+$$;
