@@ -13,7 +13,8 @@ CREATE TABLE intermedia
     Customer_type TEXT NOT NULL,
     Revenue       FLOAT CHECK ( Revenue >= 0 ),
     Cost          FLOAT CHECK ( Cost >= 0 ),
-    PRIMARY KEY (Month, Week, Product_type, Territory, Sales_Channel, Customer_type)
+    PRIMARY KEY (Month, Week, Product_type, Territory, Sales_Channel, Customer_type),
+    CHECK ( substr(Month, 1, 2) = substr(Quarter, 6, 2) AND substr(Quarter, 4, 4) = substr(Week, 4, 4) )
 );
 
 --2 Tabla definitiva
