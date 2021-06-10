@@ -3,7 +3,9 @@
 CREATE TABLE intermedia
 (
     Quarter       TEXT NOT NULL CHECK ( Quarter ~ '^Q[1-4]/[0-9]{4}$' ),
-    Month         TEXT NOT NULL CHECK ( Month ~ '^[0-9]{2}-[A-Z][a-z]{2}$' ),
+    Month         TEXT NOT NULL CHECK ( substr(Month, 4, 3) IN ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                                                                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+                                            AND substr(Month, 1, 3) ~ '^[0-9]{2}-$' ),
     Week          TEXT NOT NULL CHECK ( Week ~ '^W[1-5]-[0-9]{4}$' ),
     Product_type  TEXT NOT NULL,
     Territory     TEXT NOT NULL,
@@ -11,7 +13,7 @@ CREATE TABLE intermedia
     Customer_type TEXT NOT NULL,
     Revenue       FLOAT CHECK ( Revenue >= 0 ),
     Cost          FLOAT CHECK ( Cost >= 0 ),
-    PRIMARY KEY (Quarter, Month, Week, Product_type, Territory, Sales_Channel, Customer_type)
+    PRIMARY KEY (Month, Week, Product_type, Territory, Sales_Channel, Customer_type)
 );
 
 --2 Tabla definitiva
@@ -112,17 +114,6 @@ $$ LANGUAGE plpgsql;
 
 --5 Reporte de Ventas
 
-CREATE VIEW salesView(Sales_Year, Product_type, Sales_Channel, Customer_type, Revenue, Cost) AS -- Vista auxiliar para facilitar el cálculo del año correspondiente
-SELECT EXTRACT(YEAR FROM Sales_Date) AS Sales_Year,
-       Product_type,
-       Sales_Channel,
-       Customer_type,
-       Revenue,
-       Cost
-FROM definitiva;
-
------------------------
-
 CREATE OR REPLACE FUNCTION ReporteVentas(n INT) RETURNS VOID
     RETURNS NULL ON NULL INPUT
 AS
@@ -137,22 +128,24 @@ DECLARE
     customerTypeCursor CURSOR (selectedYear INT) FOR SELECT Customer_type,
                                                             Sum(Cost)    AS Cost,
                                                             Sum(Revenue) AS Revenue
-                                                     FROM salesView
-                                                     WHERE Sales_Year = selectedYear
+                                                     FROM definitiva
+                                                     WHERE EXTRACT(YEAR FROM Sales_Date) = selectedYear
                                                      GROUP BY Customer_type
                                                      ORDER BY Customer_type;
+
     productTypeCursor CURSOR  (selectedYear INT) FOR SELECT Product_type,
                                                             Sum(Cost)    AS Cost,
                                                             Sum(Revenue) AS Revenue
-                                                     FROM salesView
-                                                     WHERE Sales_Year = selectedYear
+                                                     FROM definitiva
+                                                     WHERE EXTRACT(YEAR FROM Sales_Date) = selectedYear
                                                      GROUP BY Product_type
                                                      ORDER BY Product_type;
+
     salesChannelCursor CURSOR (selectedYear INT) FOR SELECT Sales_Channel,
                                                             Sum(Cost)    AS Cost,
                                                             Sum(Revenue) AS Revenue
-                                                     FROM salesView
-                                                     WHERE Sales_Year = selectedYear
+                                                     FROM definitiva
+                                                     WHERE EXTRACT(YEAR FROM Sales_Date) = selectedYear
                                                      GROUP BY Sales_Channel
                                                      ORDER BY Sales_Channel;
 BEGIN
@@ -236,12 +229,16 @@ $$
     END;
 $$;
 
+-----------------------
+
 DO
 $$
     BEGIN
         PERFORM ReporteVentas(2);
     END;
 $$;
+
+-----------------------
 
 DO
 $$
@@ -250,9 +247,29 @@ $$
     END;
 $$;
 
+-----------------------
+
 DO
 $$
     BEGIN
         PERFORM ReporteVentas(0);
     END;
 $$;
+
+-----------------------
+
+-- Sentencias para borrar las distintas funciones y tablas creadas
+
+DROP FUNCTION reporteventas;
+
+DROP FUNCTION MedianaMargenMovil;
+
+DROP FUNCTION calcularDia;
+
+DROP TRIGGER insertoEnIntermedia ON intermedia;
+
+DROP FUNCTION insertarEnDefinitiva;
+
+DROP TABLE definitiva;
+
+DROP TABLE intermedia;
