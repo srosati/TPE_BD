@@ -1,3 +1,5 @@
+SET datestyle TO ymd;
+
 --1 Tabla intermedia
 
 CREATE TABLE intermedia
@@ -76,10 +78,6 @@ CREATE TRIGGER insertoEnIntermedia
     ON intermedia
     FOR EACH ROW
 EXECUTE PROCEDURE insertarEnDefinitiva();
-
------------------------
-
-COPY intermedia FROM '/absolute/path/to/csvFile' WITH DELIMITER ',' CSV HEADER; -- Reemplazar por el path absoluto al archivo que se desea importar
 
 --4 Cálculo de la mediana
 
@@ -271,6 +269,6 @@ DROP TRIGGER insertoEnIntermedia ON intermedia;
 
 DROP FUNCTION insertarEnDefinitiva;
 
-DROP TABLE definitiva;
+DROP TABLE definitiva CASCADE;
 
-DROP TABLE intermedia;
+DROP TABLE intermedia CASCADE;
